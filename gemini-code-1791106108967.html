@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>シフト・給与オートマネージャー</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans antialiased min-h-screen">
+
+    <!-- Password Protection Modal / Screen -->
+    <div id="auth-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md mx-4 border border-slate-100">
+            <div class="text-center mb-6">
+                <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-indigo-100 text-indigo-600 mb-4 text-2xl">
+                    <i class="fa-solid fa-lock"></i>
+                </div>
+                <h2 class="text-2xl font-bold text-slate-900">アクセス認証</h2>
+                <p class="text-sm text-slate-500 mt-1">閲覧パスワードを入力してください</p>
+            </div>
+            <form id="auth-form" onsubmit="handleAuth(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">パスワード</label>
+                    <input type="password" id="auth-password" required placeholder="パスワードを入力 (初期: 1234)" 
+                           class="w-full px-4 py-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-700">
+                </div>
+                <div id="auth-error" class="text-red-500 text-xs hidden">パスワードが間違っています。</div>
+                <button type="submit" class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl shadow-lg shadow-indigo-200 transition">
+                    ログイン
+                </button>
+            </form>
+            <div class="mt-4 text-center">
+                <p class="text-xs text-slate-400">※初期パスワードは <span class="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">1234</span> です（設定で変更可能）</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main App Wrapper (Hidden until authenticated) -->
+    <div id="app-container" class="hidden flex flex-col min-h-screen">
+
+        <!-- Sticky Top Navigation -->
+        <header class="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-sm">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex items-center justify-between h-16">
+                    <!-- Left: Logo & Sidebar Toggle Icons -->
+                    <div class="flex items-center space-x-3">
+                        <button onclick="toggleSidebar()" class="p-2 rounded-xl text-slate-600 hover:bg-slate-100 transition focus:outline-none flex items-center space-x-2">
+                            <i class="fa-solid fa-clock text-indigo-600 text-lg"></i>
+                            <i class="fa-solid fa-briefcase text-emerald-600 text-lg"></i>
+                            <i class="fa-solid fa-bars text-slate-700 ml-1"></i>
+                        </button>
+                        <span class="font-bold text-lg text-slate-900 tracking-tight flex items-center gap-2">
+                            <span class="bg-indigo-600 text-white p-1.5 rounded-lg text-sm"><i class="fa-solid fa-calculator"></i></span>
+                            給与・シフトマネージャー
+                        </span>
+                    </div>
+
+                    <!-- Desktop Navigation Tabs -->
+                    <nav class="hidden md:flex space-x-1">
+                        <button onclick="switchTab('dashboard')" class="nav-btn px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 transition active-tab" data-tab="dashboard">
+                            <i class="fa-solid fa-chart-pie mr-1.5"></i>ダッシュボード
+                        </button>
+                        <button onclick="switchTab('calendar')" class="nav-btn px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 transition" data-tab="calendar">
+                            <i class="fa-solid fa-calendar-days mr-1.5"></i>シフトカレンダー
+                        </button>
+                        <button onclick="switchTab('timecard')" class="nav-btn px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 transition" data-tab="timecard">
+                            <i class="fa-solid fa-fingerprint mr-1.5"></i>タイムカード
+                        </button>
+                        <button onclick="switchTab('transport')" class="nav-btn px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 transition" data-tab="transport">
+                            <i class="fa-solid fa-train-subway mr-1.5"></i>交通費・経費
+                        </button>
+                        <button onclick="switchTab('settings')" class="nav-btn px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 transition" data-tab="settings">
+                            <i class="fa-solid fa-gear mr-1.5"></i>設定
+                        </button>
+                    </nav>
+
+                    <!-- Right Quick Actions -->
+                    <div class="flex items-center space-x-2">
+                        <span id="current-month-badge" class="text-xs font-semibold px-3 py-1 bg-indigo-50 text-indigo-700 rounded-full border border-indigo-100"></span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Slide-out Sidebar -->
+        <div id="sidebar-backdrop" onclick="toggleSidebar()" class="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs hidden transition-opacity"></div>
+        <aside id="sidebar" class="fixed top-0 left-0 bottom-0 z-50 w-72 bg-white shadow-2xl transform -translate-x-full transition-transform duration-300 flex flex-col">
+            <div class="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-900 text-white">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white text-lg font-bold shadow">
+                        <i class="fa-solid fa-shield-halved"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-sm">クイックメニュー</h3>
+                        <p class="text-xs text-slate-400">簡単ツール切り替え</p>
+                    </div>
+                </div>
+                <button onclick="toggleSidebar()" class="text-slate-400 hover:text-white p-2">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+            <div class="p-4 space-y-2 flex-1 overflow-y-auto">
+                <button onclick="switchTab('dashboard'); toggleSidebar();" class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition">
+                    <i class="fa-solid fa-chart-pie w-5 text-indigo-500"></i><span>ダッシュボード</span>
+                </button>
+                <button onclick="switchTab('calendar'); toggleSidebar();" class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition">
+                    <i class="fa-solid fa-calendar-days w-5 text-indigo-500"></i><span>シフトカレンダー</span>
+                </button>
+                <button onclick="switchTab('timecard'); toggleSidebar();" class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition">
+                    <i class="fa-solid fa-fingerprint w-5 text-indigo-500"></i><span>タイムカード</span>
+                </button>
+                <button onclick="switchTab('transport'); toggleSidebar();" class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition">
+                    <i class="fa-solid fa-train-subway w-5 text-indigo-500"></i><span>交通費・経費</span>
+                </button>
+                <button onclick="switchTab('settings'); toggleSidebar();" class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition">
+                    <i class="fa-solid fa-gear w-5 text-indigo-500"></i><span>設定・パスワード</span>
+                </button>
+            </div>
+            <div class="p-4 border-t border-slate-100 bg-slate-50 text-center">
+                <button onclick="lockApp()" class="w-full py-2.5 px-4 bg-rose-50 hover:bg-rose-100 text-rose-600 font-semibold rounded-xl text-xs transition flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-lock"></i> 画面をロックする
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+            <!-- Month Selector Bar -->
+            <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 mb-6 flex flex-wrap items-center justify-between gap-4">
+                <div class="flex items-center space-x-3">
+                    <label class="text-xs font-bold text-slate-500 uppercase tracking-wider">対象月</label>
+                    <input type="month" id="global-month-picker" onchange="changeGlobalMonth(this.value)" 
+                           class="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-700 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button onclick="exportCSV()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-arrow-down"></i> CSVエクスポート
+                    </button>
+                </div>
+            </div>
+
+            <!-- TAB 1: DASHBOARD -->
+            <div id="tab-dashboard" class="tab-content space-y-6">
+                <!-- Top Summary Cards -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <!-- Net Salary -->
+                    <div class="bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-2xl p-5 text-white shadow-lg shadow-indigo-100">
+                        <div class="flex items-center justify-between text-indigo-200 mb-2">
+                            <span class="text-xs font-semibold uppercase tracking-wider">今月の手取り概算 (税引後)</span>
+                            <i class="fa-solid fa-wallet text-xl text-indigo-200"></i>
+                        </div>
+                        <div class="text-3xl font-extrabold tracking-tight" id="dash-net-salary">¥0</div>
+                        <div class="mt-2 text-xs text-indigo-200 flex items-center justify-between">
+                            <span>総支給: <span id="dash-gross-salary">¥0</span></span>
+                            <span>源泉税: <span id="dash-tax-amount">¥0</span></span>
+                        </div>
+                    </div>
+
+                    <!-- Working Hours -->
+                    <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
+                        <div class="flex items-center justify-between text-slate-400 mb-2">
+                            <span class="text-xs font-semibold uppercase tracking-wider">今月の総労働時間</span>
+                            <i class="fa-solid fa-business-time text-xl text-indigo-500"></i>
+                        </div>
+                        <div class="text-3xl font-extrabold text-slate-800" id="dash-total-hours">0.0 <span class="text-lg font-normal text-slate-500">時間</span></div>
+                        <div class="mt-2 text-xs text-slate-500">
+                            出勤日数: <span id="dash-work-days" class="font-bold text-slate-700">0</span> 日
+                        </div>
+                    </div>
+
+                    <!-- Transport & Allowances -->
+                    <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
+                        <div class="flex items-center justify-between text-slate-400 mb-2">
+                            <span class="text-xs font-semibold uppercase tracking-wider">交通費・各種手当計</span>
+                            <i class="fa-solid fa-coins text-xl text-amber-500"></i>
+                        </div>
+                        <div class="text-3xl font-extrabold text-slate-800" id="dash-total-allowances">¥0</div>
+                        <div class="mt-2 text-xs text-slate-500 flex justify-between">
+                            <span>交通費: <span id="dash-trans-sum">¥0</span></span>
+                            <span>重説: <span id="dash-jusetsu-sum">¥0</span></span>
+                        </div>
+                    </div>
+
+                    <!-- Incentives -->
+                    <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
+                        <div class="flex items-center justify-between text-slate-400 mb-2">
+                            <span class="text-xs font-semibold uppercase tracking-wider">インセンティブ・手当入力</span>
+                            <i class="fa-solid fa-award text-xl text-emerald-500"></i>
+                        </div>
+                        <div class="space-y-2 mt-2">
+                            <div class="flex items-center justify-between text-xs">
+                                <span class="text-slate-600">重説件数 (1件¥5k):</span>
+                                <input type="number" id="dash-jusetsu-count" min="0" value="0" onchange="saveDashboardExtras()" 
+                                       class="w-16 px-2 py-1 border border-slate-300 rounded-lg text-right font-bold text-slate-700">
+                            </div>
+                            <div class="flex items-center justify-between text-xs">
+                                <span class="text-slate-600">インセンティブ(円):</span>
+                                <input type="number" id="dash-incentive-amount" min="0" value="0" onchange="saveDashboardExtras()" 
+                                       class="w-24 px-2 py-1 border border-slate-300 rounded-lg text-right font-bold text-slate-700">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Punch Widget on Dashboard -->
+                <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+                    <h3 class="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-fingerprint text-indigo-600"></i> 本日のクイック打刻 (<span id="dash-today-str"></span>)
+                    </h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <button onclick="quickPunch('clockIn')" class="py-6 px-6 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold shadow-lg shadow-emerald-100 transition flex flex-col items-center justify-center gap-1">
+                            <i class="fa-solid fa-right-to-bracket text-3xl"></i>
+                            <span class="text-lg">出勤する</span>
+                            <span class="text-xs font-normal text-emerald-100" id="dash-clockin-status">未打刻</span>
+                        </button>
+                        <button onclick="quickPunch('clockOut')" class="py-6 px-6 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-bold shadow-lg shadow-rose-100 transition flex flex-col items-center justify-center gap-1">
+                            <i class="fa-solid fa-right-from-bracket text-3xl"></i>
+                            <span class="text-lg">退勤する</span>
+                            <span class="text-xs font-normal text-rose-100" id="dash-clockout-status">未打刻</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 2: CALENDAR (Shift Management) -->
+            <div id="tab-calendar" class="tab-content hidden space-y-6">
+                <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+                    <div class="flex items-center justify-between mb-6">
+                        <div>
+                            <h2 class="text-xl font-bold text-slate-900">シフトカレンダー</h2>
+                            <p class="text-xs text-slate-500 mt-0.5">日ごとの勤務予定を設定します（未設定の日は日付のみ表示されます）</p>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button onclick="changeMonthOffset(-1)" class="p-2 border border-slate-300 rounded-xl hover:bg-slate-50 text-slate-700"><i class="fa-solid fa-chevron-left"></i></button>
+                            <span id="calendar-month-label" class="font-bold text-slate-800 text-base px-2"></span>
+                            <button onclick="changeMonthOffset(1)" class="p-2 border border-slate-300 rounded-xl hover:bg-slate-50 text-slate-700"><i class="fa-solid fa-chevron-right"></i></button>
+                        </div>
+                    </div>
+
+                    <!-- Calendar Grid Header -->
+                    <div class="grid grid-cols-7 gap-2 text-center font-bold text-xs text-slate-400 uppercase mb-2">
+                        <div class="text-rose-500">日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div class="text-indigo-500">土</div>
+                    </div>
+                    <!-- Calendar Days Grid -->
+                    <div id="calendar-grid" class="grid grid-cols-7 gap-2"></div>
+                </div>
+            </div>
+
+            <!-- Shift Edit Modal -->
+            <div id="shift-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs hidden">
+                <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4 border border-slate-100">
+                    <h3 class="text-lg font-bold text-slate-900 mb-1" id="modal-date-title">シフト設定</h3>
+                    <p class="text-xs text-slate-500 mb-4">勤務パターンを選択してください</p>
+                    <form onsubmit="saveShiftModal(event)" class="space-y-4">
+                        <input type="hidden" id="modal-date-val">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">シフト種別</label>
+                            <select id="modal-shift-type" onchange="onShiftTypeChange(this.value)" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-700 text-sm font-semibold">
+                                <option value="unassigned">未設定（日付のみ）</option>
+                                <option value="off">休み (OFF)</option>
+                                <option value="normal">通常 (10:00 〜 19:00)</option>
+                                <option value="custom">カスタム</option>
+                            </select>
+                        </div>
+                        <div id="modal-custom-times" class="grid grid-cols-2 gap-3 hidden">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">開始時間</label>
+                                <input type="time" id="modal-start-time" value="10:00" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-700 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">終了時間</label>
+                                <input type="time" id="modal-end-time" value="19:00" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-700 text-sm">
+                            </div>
+                        </div>
+                        <div class="flex justify-end space-x-2 pt-2">
+                            <button type="button" onclick="closeShiftModal()" class="px-4 py-2 border border-slate-300 text-slate-600 font-semibold rounded-xl text-xs hover:bg-slate-50">キャンセル</button>
+                            <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-xs shadow">保存する</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- TAB 3: TIMECARD -->
+            <div id="tab-timecard" class="tab-content hidden space-y-6">
+                <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+                    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+                        <div>
+                            <h2 class="text-xl font-bold text-slate-900">タイムカード・実績管理</h2>
+                            <p class="text-xs text-slate-500 mt-0.5">日ごとの出退勤実績、法定休憩自動控除、メモ（早上がり等）を管理</p>
+                        </div>
+                    </div>
+
+                    <!-- Big Punch Buttons Bar -->
+                    <div class="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-5 mb-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+                        <div>
+                            <div class="text-xs font-bold text-indigo-700 uppercase tracking-wider mb-1">本日のクイック打刻</div>
+                            <div class="text-sm font-semibold text-slate-700" id="timecard-today-display"></div>
+                        </div>
+                        <div class="flex items-center gap-3 w-full sm:w-auto">
+                            <button onclick="quickPunch('clockIn')" class="flex-1 sm:flex-none px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow transition flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-right-to-bracket"></i> 出勤打刻
+                            </button>
+                            <button onclick="quickPunch('clockOut')" class="flex-1 sm:flex-none px-6 py-3.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow transition flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-right-from-bracket"></i> 退勤打刻
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Timecard Table -->
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-sm">
+                            <thead>
+                                <tr class="bg-slate-100 text-slate-600 text-xs font-bold uppercase border-b border-slate-200">
+                                    <th class="p-3">日付</th>
+                                    <th class="p-3">シフト予定</th>
+                                    <th class="p-3">出勤</th>
+                                    <th class="p-3">退勤</th>
+                                    <th class="p-3">休憩</th>
+                                    <th class="p-3">実働</th>
+                                    <th class="p-3">メモ (早上がり等)</th>
+                                    <th class="p-3 text-center">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="timecard-table-body" class="divide-y divide-slate-100 text-slate-700">
+                                <!-- Dynamic rows -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 4: TRANSPORTATION & EXPENSES -->
+            <div id="tab-transport" class="tab-content hidden space-y-6">
+                <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+                    <div class="flex items-center justify-between mb-6">
+                        <div>
+                            <h2 class="text-xl font-bold text-slate-900">交通費・外出経費</h2>
+                            <p class="text-xs text-slate-500 mt-0.5">通勤費および急な外出の交通費（線名・駅名別）を記録します</p>
+                        </div>
+                    </div>
+
+                    <!-- Add Transport Form -->
+                    <form onsubmit="addTransportExpense(event)" class="bg-slate-50 border border-slate-200 rounded-2xl p-4 mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">日付</label>
+                            <input type="date" id="trans-date" required class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">目的 / 用途</label>
+                            <input type="text" id="trans-purpose" placeholder="例: 通勤 / 取引先訪問" required class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm">
+                        </div>
+                        <!-- Start: Line + Station -->
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">出発(線名)</label>
+                                <input type="text" id="trans-start-line" placeholder="例: JR山手線" required class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">出発(駅/場所)</label>
+                                <input type="text" id="trans-start-station" placeholder="例: 新宿駅" required class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm">
+                            </div>
+                        </div>
+                        <!-- Arrival: Line + Station -->
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">到着(線名)</label>
+                                <input type="text" id="trans-end-line" placeholder="例: 東京メトロ" required class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">到着(駅/場所)</label>
+                                <input type="text" id="trans-end-station" placeholder="例: 渋谷駅" required class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">金額 (円)</label>
+                            <input type="number" id="trans-amount" min="0" value="380" required class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">往復 / 片道</label>
+                            <select id="trans-type" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm font-semibold">
+                                <option value="round">往復</option>
+                                <option value="one">片道</option>
+                            </select>
+                        </div>
+                        <div class="sm:col-span-2 flex items-end">
+                            <button type="submit" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-sm shadow transition flex items-center justify-center gap-1.5">
+                                <i class="fa-solid fa-plus"></i> 交通費を登録する
+                            </button>
+                        </div>
+                    </form>
+
+                    <!-- Transport List Table -->
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-sm">
+                            <thead>
+                                <tr class="bg-slate-100 text-slate-600 text-xs font-bold uppercase border-b border-slate-200">
+                                    <th class="p-3">日付</th>
+                                    <th class="p-3">目的</th>
+                                    <th class="p-3">出発 (線 / 駅)</th>
+                                    <th class="p-3">到着 (線 / 駅)</th>
+                                    <th class="p-3">種別</th>
+                                    <th class="p-3 text-right">金額</th>
+                                    <th class="p-3 text-center">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="transport-table-body" class="divide-y divide-slate-100 text-slate-700">
+                                <!-- Dynamic rows -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 5: SETTINGS -->
+            <div id="tab-settings" class="tab-content hidden space-y-6">
+                <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm max-w-2xl mx-auto">
+                    <h2 class="text-xl font-bold text-slate-900 mb-1">給与・システム設定</h2>
+                    <p class="text-xs text-slate-500 mb-6">時給、既定交通費、源泉徴収税率、閲覧パスワードの設定を行います</p>
+
+                    <form onsubmit="saveSettings(event)" class="space-y-4">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">時給 (円)</label>
+                                <input type="number" id="setting-hourly-wage" value="1700" required class="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold text-slate-700">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">デフォルト通勤交通費 (往復・円)</label>
+                                <input type="number" id="setting-default-trans" value="380" required class="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold text-slate-700">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">源泉徴収税率 (%)</label>
+                            <input type="number" step="0.1" id="setting-tax-rate" value="10.0" required class="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold text-slate-700">
+                            <p class="text-xs text-slate-400 mt-1">※総支給額から差し引かれる源泉徴収税の割合です</p>
+                        </div>
+                        <div class="border-t border-slate-100 pt-4">
+                            <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">閲覧パスワード変更</label>
+                            <input type="text" id="setting-new-password" placeholder="変更する場合のみ入力" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm">
+                        </div>
+                        <div class="pt-4 flex justify-end">
+                            <button type="submit" class="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm shadow transition">
+                                設定を保存する
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- JavaScript Application Logic -->
+    <script>
+        // State Management
+        let appData = {
+            authPassword: '1234',
+            hourlyWage: 1700,
+            defaultTrans: 380,
+            taxRate: 10.0,
+            currentMonth: new Date().toISOString().slice(0, 7), // YYYY-MM
+            shifts: {}, // "YYYY-MM-DD": { type: 'unassigned'|'normal'|'custom'|'off', start: '10:00', end: '19:00' }
+            timecards: {}, // "YYYY-MM-DD": { clockIn: '10:00', clockOut: '19:00', memo: '' }
+            transExpenses: [], // Array of objects
+            dashExtras: {} // "YYYY-MM": { jusetsuCount: 0, incentive: 0 }
+        };
+
+        let calendarYear = new Date().getFullYear();
+        let calendarMonth = new Date().getMonth();
+
+        // Initialization on load
+        window.addEventListener('DOMContentLoaded', () => {
+            loadDataFromStorage();
+            
+            // Check if already session authenticated
+            if (sessionStorage.getItem('authenticated') === 'true') {
+                unlockApp();
+            }
+
+            // Init month pickers
+            document.getElementById('global-month-picker').value = appData.currentMonth;
+            updateHeaderMonthBadge();
+            renderAll();
+        });
+
+        function handleAuth(e) {
+            e.preventDefault();
+            const pwd = document.getElementById('auth-password').value;
+            if (pwd === appData.authPassword) {
+                sessionStorage.setItem('authenticated', 'true');
+                unlockApp();
+            } else {
+                document.getElementById('auth-error').classList.remove('hidden');
+            }
+        }
+
+        function unlockApp() {
+            document.getElementById('auth-modal').classList.add('hidden');
+            document.getElementById('app-container').classList.remove('hidden');
+            renderAll();
+        }
+
+        function lockApp() {
+            sessionStorage.removeItem('authenticated');
+            document.getElementById('auth-modal').classList.remove('hidden');
+            document.getElementById('app-container').classList.add('hidden');
+            document.getElementById('auth-password').value = '';
+            document.getElementById('auth-error').classList.add('hidden');
+        }
+
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const backdrop = document.getElementById('sidebar-backdrop');
+            sidebar.classList.toggle('-translate-x-full');
+            backdrop.classList.toggle('hidden');
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('bg-indigo-50', 'text-indigo-600', 'font-bold');
+            });
+            document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+            const activeBtn = document.querySelector(`.nav-btn[data-tab="${tabId}"]`);
+            if (activeBtn) {
+                activeBtn.classList.add('bg-indigo-50', 'text-indigo-600', 'font-bold');
+            }
+            renderAll();
+        }
+
+        function changeGlobalMonth(val) {
+            appData.currentMonth = val;
+            saveDataToStorage();
+            updateHeaderMonthBadge();
+            renderAll();
+        }
+
+        function updateHeaderMonthBadge() {
+            document.getElementById('current-month-badge').innerText = `${appData.currentMonth} 度`;
+        }
+
+        // LocalStorage
+        function saveDataToStorage() {
+            localStorage.setItem('shift_manager_data', JSON.stringify(appData));
+        }
+
+        function loadDataFromStorage() {
+            const saved = localStorage.getItem('shift_manager_data');
+            if (saved) {
+                try {
+                    appData = Object.assign(appData, JSON.parse(saved));
+                } catch(e) { console.error(e); }
+            }
+            document.getElementById('setting-hourly-wage').value = appData.hourlyWage;
+            document.getElementById('setting-default-trans').value = appData.defaultTrans;
+            document.getElementById('setting-tax-rate').value = appData.taxRate;
+        }
+
+        function renderAll() {
+            renderDashboard();
+            renderCalendar();
+            renderTimecard();
+            renderTransport();
+        }
+
+        // --- DASHBOARD & CALCULATIONS ---
+        function renderDashboard() {
+            const todayStr = new Date().toISOString().slice(0, 10);
+            document.getElementById('dash-today-str').innerText = todayStr;
+            document.getElementById('timecard-today-display').innerText = todayStr;
+
+            // Load extras for current month
+            const extras = appData.dashExtras[appData.currentMonth] || { jusetsuCount: 0, incentive: 0 };
+            document.getElementById('dash-jusetsu-count').value = extras.jusetsuCount;
+            document.getElementById('dash-incentive-amount').value = extras.incentive;
+
+            // Calculate metrics for current month
+            let totalMinutes = 0;
+            let workDays = 0;
+            
+            const [year, month] = appData.currentMonth.split('-').map(Number);
+            const daysInMonth = new Date(year, month, 0).getDate();
+
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dayStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const tc = appData.timecards[dayStr];
+                if (tc && tc.clockIn && tc.clockOut) {
+                    const mins = calculateWorkedMinutes(tc.clockIn, tc.clockOut);
+                    if (mins > 0) {
+                        totalMinutes += mins;
+                        workDays++;
+                    }
+                }
+            }
+
+            const totalHours = totalMinutes / 60;
+            const grossWage = totalHours * appData.hourlyWage;
+
+            // Transport sum for current month
+            let transSum = 0;
+            appData.transExpenses.forEach(item => {
+                if (item.date.startsWith(appData.currentMonth)) {
+                    transSum += (item.amount * (item.type === 'round' ? 2 : 1));
+                }
+            });
+
+            const jusetsuSum = extras.jusetsuCount * 5000;
+            const incentiveSum = Number(extras.incentive) || 0;
+            const totalAllowances = transSum + jusetsuSum + incentiveSum;
+
+            const totalGrossSalary = grossWage + totalAllowances;
+            const taxAmount = totalGrossSalary * (appData.taxRate / 100);
+            const netSalary = totalGrossSalary - taxAmount;
+
+            // UI update
+            document.getElementById('dash-net-salary').innerText = `¥${Math.round(netSalary).toLocaleString()}`;
+            document.getElementById('dash-gross-salary').innerText = `¥${Math.round(totalGrossSalary).toLocaleString()}`;
+            document.getElementById('dash-tax-amount').innerText = `¥${Math.round(taxAmount).toLocaleString()}`;
+            document.getElementById('dash-total-hours').innerHTML = `${totalHours.toFixed(1)} <span class="text-lg font-normal text-slate-500">時間</span>`;
+            document.getElementById('dash-work-days').innerText = workDays;
+            document.getElementById('dash-total-allowances').innerText = `¥${Math.round(totalAllowances).toLocaleString()}`;
+            document.getElementById('dash-trans-sum').innerText = `¥${transSum.toLocaleString()}`;
+            document.getElementById('dash-jusetsu-sum').innerText = `¥${jusetsuSum.toLocaleString()}`;
+
+            // Today punch status
+            const todayTc = appData.timecards[todayStr];
+            document.getElementById('dash-clockin-status').innerText = todayTc && todayTc.clockIn ? `打刻済 (${todayTc.clockIn})` : '未打刻';
+            document.getElementById('dash-clockout-status').innerText = todayTc && todayTc.clockOut ? `打刻済 (${todayTc.clockOut})` : '未打刻';
+        }
+
+        function saveDashboardExtras() {
+            const jusetsuCount = Number(document.getElementById('dash-jusetsu-count').value) || 0;
+            const incentive = Number(document.getElementById('dash-incentive-amount').value) || 0;
+            appData.dashExtras[appData.currentMonth] = { jusetsuCount, incentive };
+            saveDataToStorage();
+            renderDashboard();
+        }
+
+        function quickPunch(type) {
+            const todayStr = new Date().toISOString().slice(0, 10);
+            const nowTime = new Date().toTimeString().slice(0, 5);
+            if (!appData.timecards[todayStr]) {
+                appData.timecards[todayStr] = { clockIn: '', clockOut: '', memo: '' };
+            }
+            if (type === 'clockIn') {
+                appData.timecards[todayStr].clockIn = nowTime;
+            } else {
+                appData.timecards[todayStr].clockOut = nowTime;
+            }
+            saveDataToStorage();
+            renderDashboard();
+            renderTimecard();
+            alert(`本日の${type === 'clockIn' ? '出勤' : '退勤'}時刻 (${nowTime}) を記録しました！`);
+        }
+
+        // --- CALENDAR & SHIFTS ---
+        function renderCalendar() {
+            const label = `${calendarYear}年 ${calendarMonth + 1}月`;
+            document.getElementById('calendar-month-label').innerText = label;
+
+            const grid = document.getElementById('calendar-grid');
+            grid.innerHTML = '';
+
+            const firstDayIndex = new Date(calendarYear, calendarMonth, 1).getDay();
+            const totalDays = new Date(calendarYear, calendarMonth + 1, 0).getDate();
+
+            // Blank spaces for previous month
+            for (let i = 0; i < firstDayIndex; i++) {
+                const emptyCell = document.createElement('div');
+                emptyCell.className = 'h-24 bg-slate-50/50 rounded-xl border border-dashed border-slate-200 opacity-40';
+                grid.appendChild(emptyCell);
+            }
+
+            for (let d = 1; d <= totalDays; d++) {
+                const dateStr = `${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const shift = appData.shifts[dateStr] || { type: 'unassigned' };
+
+                const cell = document.createElement('div');
+                cell.className = 'h-28 bg-white border border-slate-200 rounded-xl p-2 flex flex-col justify-between hover:border-indigo-400 cursor-pointer transition shadow-xs';
+                cell.onclick = () => openShiftModal(dateStr);
+
+                let badgeHtml = '';
+                let detailsHtml = '';
+                if (shift.type === 'off') {
+                    badgeHtml = `<span class="px-1.5 py-0.5 bg-rose-50 text-rose-600 rounded text-[10px] font-bold">休み</span>`;
+                    detailsHtml = `<div class="text-[11px] text-slate-500 mt-1">休業日</div>`;
+                } else if (shift.type === 'normal') {
+                    badgeHtml = `<span class="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded text-[10px] font-bold">通常 10-19</span>`;
+                    detailsHtml = `<div class="text-[11px] text-slate-500 mt-1">10:00 - 19:00</div>`;
+                } else if (shift.type === 'custom') {
+                    badgeHtml = `<span class="px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded text-[10px] font-bold">${shift.start}~${shift.end}</span>`;
+                    detailsHtml = `<div class="text-[11px] text-slate-500 mt-1">${shift.start} - ${shift.end}</div>`;
+                } else {
+                    // unassigned: show only date number and empty slot
+                    detailsHtml = `<div class="text-[11px] text-slate-300 italic mt-1">未設定</div>`;
+                }
+
+                cell.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-slate-700">${d}日</span>
+                        ${badgeHtml}
+                    </div>
+                    ${detailsHtml}
+                    <div class="text-[10px] text-indigo-600 font-semibold text-right">編集 &gt;</div>
+                `;
+                grid.appendChild(cell);
+            }
+        }
+
+        function changeMonthOffset(dir) {
+            calendarMonth += dir;
+            if (calendarMonth > 11) {
+                calendarMonth = 0;
+                calendarYear++;
+            } else if (calendarMonth < 0) {
+                calendarMonth = 11;
+                calendarYear--;
+            }
+            renderCalendar();
+        }
+
+        let editingDateStr = '';
+        function openShiftModal(dateStr) {
+            editingDateStr = dateStr;
+            document.getElementById('modal-date-title').innerText = `シフト設定: ${dateStr}`;
+            const shift = appData.shifts[dateStr] || { type: 'unassigned', start: '10:00', end: '19:00' };
+            document.getElementById('modal-shift-type').value = shift.type;
+            document.getElementById('modal-start-time').value = shift.start || '10:00';
+            document.getElementById('modal-end-time').value = shift.end || '19:00';
+            onShiftTypeChange(shift.type);
+            document.getElementById('shift-modal').classList.remove('hidden');
+        }
+
+        function closeShiftModal() {
+            document.getElementById('shift-modal').classList.add('hidden');
+        }
+
+        function onShiftTypeChange(val) {
+            const customDiv = document.getElementById('modal-custom-times');
+            if (val === 'custom') {
+                customDiv.classList.remove('hidden');
+            } else {
+                customDiv.classList.add('hidden');
+            }
+        }
+
+        function saveShiftModal(e) {
+            e.preventDefault();
+            const type = document.getElementById('modal-shift-type').value;
+            const start = document.getElementById('modal-start-time').value;
+            const end = document.getElementById('modal-end-time').value;
+            appData.shifts[editingDateStr] = { type, start, end };
+            saveDataToStorage();
+            closeShiftModal();
+            renderCalendar();
+            renderTimecard();
+        }
+
+        // --- TIMECARD ---
+        function renderTimecard() {
+            const tbody = document.getElementById('timecard-table-body');
+            tbody.innerHTML = '';
+
+            const [year, month] = appData.currentMonth.split('-').map(Number);
+            const daysInMonth = new Date(year, month, 0).getDate();
+
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const shift = appData.shifts[dateStr] || { type: 'unassigned', start: '10:00', end: '19:00' };
+                const tc = appData.timecards[dateStr] || { clockIn: (shift.type === 'normal' || shift.type === 'custom') ? (shift.start || '10:00') : '', clockOut: (shift.type === 'normal' || shift.type === 'custom') ? (shift.end || '19:00') : '', memo: '' };
+
+                // Calculate worked minutes with legal break deduction
+                let workedMins = 0;
+                let breakMins = 0;
+                if (tc.clockIn && tc.clockOut) {
+                    const rawMins = calculateWorkedMinutes(tc.clockIn, tc.clockOut);
+                    breakMins = getLegalBreakMinutes(rawMins);
+                    workedMins = Math.max(0, rawMins - breakMins);
+                }
+                const workedHours = (workedMins / 60).toFixed(1);
+
+                let shiftBadgeText = '未設定';
+                let shiftBadgeClass = 'bg-slate-100 text-slate-500';
+                if (shift.type === 'off') {
+                    shiftBadgeText = '休み';
+                    shiftBadgeClass = 'bg-rose-50 text-rose-600';
+                } else if (shift.type === 'normal') {
+                    shiftBadgeText = '10:00-19:00';
+                    shiftBadgeClass = 'bg-indigo-50 text-indigo-700';
+                } else if (shift.type === 'custom') {
+                    shiftBadgeText = `${shift.start}~${shift.end}`;
+                    shiftBadgeClass = 'bg-amber-50 text-amber-700';
+                }
+
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-50 transition';
+                tr.innerHTML = `
+                    <td class="p-3 font-semibold text-slate-800">${dateStr}</td>
+                    <td class="p-3">
+                        <span class="px-2 py-0.5 rounded text-xs font-semibold ${shiftBadgeClass}">
+                            ${shiftBadgeText}
+                        </span>
+                    </td>
+                    <td class="p-3">
+                        <input type="time" value="${tc.clockIn || ''}" id="in-${dateStr}" class="px-2 py-1 bg-white border border-slate-300 rounded-lg text-xs w-24">
+                    </td>
+                    <td class="p-3">
+                        <input type="time" value="${tc.clockOut || ''}" id="out-${dateStr}" class="px-2 py-1 bg-white border border-slate-300 rounded-lg text-xs w-24">
+                    </td>
+                    <td class="p-3 text-xs text-slate-500 font-medium">${breakMins}分</td>
+                    <td class="p-3 text-xs font-bold text-indigo-600">${workedHours}h</td>
+                    <td class="p-3">
+                        <input type="text" value="${tc.memo || ''}" id="memo-${dateStr}" placeholder="早上がり等のメモ" class="px-2 py-1 bg-white border border-slate-300 rounded-lg text-xs w-full">
+                    </td>
+                    <td class="p-3 text-center">
+                        <button onclick="saveTimecardRow('${dateStr}')" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition">
+                            保存
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            }
+        }
+
+        function calculateWorkedMinutes(inTime, outTime) {
+            const [inH, inM] = inTime.split(':').map(Number);
+            const [outH, outM] = outTime.split(':').map(Number);
+            const totalInMins = inH * 60 + inM;
+            const totalOutMins = outH * 60 + outM;
+            return Math.max(0, totalOutMins - totalInMins);
+        }
+
+        function getLegalBreakMinutes(rawMins) {
+            const hours = rawMins / 60;
+            if (hours > 8) return 60;
+            if (hours > 6) return 45;
+            return 0;
+        }
+
+        function saveTimecardRow(dateStr) {
+            const clockIn = document.getElementById(`in-${dateStr}`).value;
+            const clockOut = document.getElementById(`out-${dateStr}`).value;
+            const memo = document.getElementById(`memo-${dateStr}`).value;
+
+            appData.timecards[dateStr] = { clockIn, clockOut, memo };
+            saveDataToStorage();
+            renderDashboard();
+            renderTimecard();
+            alert(`${dateStr} のタイムカードを保存しました！`);
+        }
+
+        // --- TRANSPORTATION & EXPENSES ---
+        function addTransportExpense(e) {
+            e.preventDefault();
+            const date = document.getElementById('trans-date').value;
+            const purpose = document.getElementById('trans-purpose').value;
+            const startLine = document.getElementById('trans-start-line').value;
+            const startStation = document.getElementById('trans-start-station').value;
+            const endLine = document.getElementById('trans-end-line').value;
+            const endStation = document.getElementById('trans-end-station').value;
+            const amount = Number(document.getElementById('trans-amount').value);
+            const type = document.getElementById('trans-type').value;
+
+            appData.transExpenses.push({ id: Date.now(), date, purpose, startLine, startStation, endLine, endStation, amount, type });
+            saveDataToStorage();
+            renderTransport();
+            renderDashboard();
+
+            document.getElementById('trans-purpose').value = '';
+            document.getElementById('trans-start-line').value = '';
+            document.getElementById('trans-start-station').value = '';
+            document.getElementById('trans-end-line').value = '';
+            document.getElementById('trans-end-station').value = '';
+        }
+
+        function renderTransport() {
+            const tbody = document.getElementById('transport-table-body');
+            tbody.innerHTML = '';
+
+            const filtered = appData.transExpenses.filter(item => item.date.startsWith(appData.currentMonth));
+            filtered.sort((a,b) => a.date.localeCompare(b.date));
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-400 text-xs">今月の交通費・経費データはありません</td></tr>`;
+                return;
+            }
+
+            filtered.forEach(item => {
+                const totalAmt = item.amount * (item.type === 'round' ? 2 : 1);
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-50 transition';
+                tr.innerHTML = `
+                    <td class="p-3 font-semibold text-slate-800">${item.date}</td>
+                    <td class="p-3">${item.purpose}</td>
+                    <td class="p-3"><span class="text-xs text-slate-500">${item.startLine}</span><br/><span class="font-bold">${item.startStation}</span></td>
+                    <td class="p-3"><span class="text-xs text-slate-500">${item.endLine}</span><br/><span class="font-bold">${item.endStation}</span></td>
+                    <td class="p-3"><span class="px-2 py-0.5 bg-slate-100 rounded text-xs font-semibold">${item.type === 'round' ? '往復' : '片道'}</span></td>
+                    <td class="p-3 text-right font-bold text-slate-800">¥${totalAmt.toLocaleString()}</td>
+                    <td class="p-3 text-center">
+                        <button onclick="deleteTransport(${item.id})" class="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition"><i class="fa-solid fa-trash-can"></i></button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function deleteTransport(id) {
+            if (confirm('この交通費データを削除しますか？')) {
+                appData.transExpenses = appData.transExpenses.filter(item => item.id !== id);
+                saveDataToStorage();
+                renderTransport();
+                renderDashboard();
+            }
+        }
+
+        // --- SETTINGS ---
+        function saveSettings(e) {
+            e.preventDefault();
+            appData.hourlyWage = Number(document.getElementById('setting-hourly-wage').value);
+            appData.defaultTrans = Number(document.getElementById('setting-default-trans').value);
+            appData.taxRate = Number(document.getElementById('setting-tax-rate').value);
+            
+            const newPwd = document.getElementById('setting-new-password').value.trim();
+            if (newPwd) {
+                appData.authPassword = newPwd;
+                alert('パスワードが変更されました。次回から新しいパスワードになります。');
+            }
+
+            saveDataToStorage();
+            renderAll();
+            alert('設定を保存しました！');
+        }
+
+        // --- CSV EXPORT ---
+        function exportCSV() {
+            let csv = '\uFEFF';
+            csv += '日付,シフト,出勤,退勤,休憩,実働時間(h),メモ\n';
+
+            const [year, month] = appData.currentMonth.split('-').map(Number);
+            const daysInMonth = new Date(year, month, 0).getDate();
+
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const shift = appData.shifts[dateStr] || { type: 'unassigned' };
+                const tc = appData.timecards[dateStr] || { clockIn: '', clockOut: '', memo: '' };
+                let workedH = 0;
+                if (tc.clockIn && tc.clockOut) {
+                    const rawMins = calculateWorkedMinutes(tc.clockIn, tc.clockOut);
+                    const bMins = getLegalBreakMinutes(rawMins);
+                    workedH = ((rawMins - bMins) / 60).toFixed(1);
+                }
+                csv += `"${dateStr}","${shift.type}","${tc.clockIn}","${tc.clockOut}","${getLegalBreakMinutes(calculateWorkedMinutes(tc.clockIn||'0:00', tc.clockOut||'0:00'))}分","${workedH}","${(tc.memo||'').replace(/"/g, '""')}"\n`;
+            }
+
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `timecard_${appData.currentMonth}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>
